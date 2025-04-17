@@ -38,5 +38,7 @@ RUN pip install --no-cache-dir /wheels/*      \
  && chmod +x /usr/local/bin/entry.sh          \
  && chown -R myca:myca /opt/myca
 
+RUN ln -s /opt/myca/mini_ca.py /usr/local/bin/mini_ca.py
+RUN chmod +x /opt/myca/mini_ca.py
 USER myca
 ENTRYPOINT ["entry.sh"]

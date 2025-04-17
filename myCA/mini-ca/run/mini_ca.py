@@ -1,7 +1,9 @@
-"""
-mini‑ca – single‑binary development certificate authority
+#!/usr/bin/env python3
 
-Three sub‑commands:
+"""
+mini-casinglebinary development certificate authority
+
+Three sub-commands:
 
     init      create / verify the root CA
     issue     issue a single certificate

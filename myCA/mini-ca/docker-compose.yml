@@ -1,41 +1,34 @@
-
 volumes:
-  mini-data:
+   mini-data:
+       driver: local
+       driver_opts:
+           type: "none"
+           device: "/var/lib/docker/volumes/mini-data/_data" # default path
+           o: "bind,uid=1001,gid=1001"
 
-x-build: &mini-build
-  context: .              # <-- matches the Dockerfile directory
-  dockerfile: docker/Dockerfile
 
-services:
-# ----------------------------------------------------------------------
-# 1) one‑shot initialiser (fixes volume ownership + creates root CA)
-# ----------------------------------------------------------------------
-  mini-ca-init:
-    image: minica:latest
-    build: *mini-build
-    user: root
-    entrypoint: [ "/bin/sh", "-c" ]      #  <<< FIXED
-    command: |
-      echo '[init] fixing perms…'        &&
-      chown -R 1001:1001 /data 2>/dev/null || true &&
-      echo '[init] generating / refreshing root CA…' &&
-      su myca -s /bin/sh -c 'mini_ca.py init --force'
-    volumes:
-      - mini-data:/data
-    restart: "no"
+services: # one‑shot: create (or verify) the root CA
+    mini-ca-init:
+      image: minica
+      volumes: [ mini-data:/data ]
+      command: [ "mini_ca.py", "init", "--force" ]
+      restart: "no" # long‑running watcher – auto‑issues certs listed in /data/DOMAINS
 
-# ----------------------------------------------------------------------
-# 2) Long‑running CA service (optional watcher)
-# ----------------------------------------------------------------------
-  mini-ca:
-    image: minica:latest
-    build: *mini-build
-    user: 1001:1001
-    entrypoint: [ "mini_ca.py" ]   # keep the Typer CLI
-    # uncomment to run in watch mode all the time
-    # command: [ "watch", "--file", "/data/DOMAINS" ]
-    depends_on:
-      mini-ca-init:
-        condition: service_completed_successfully
-    volumes:
-      - mini-data:/data
+    mini-ca:
+      image: minica:latest
+      volumes:
+        - mini-data:/data
+    # start mini_ca.py with the *watch* sub‑command
+      entrypoint: [ "mini_ca.py", "watch", "--file", "/data/DOMAINS", "--interval", "10" ] # ← seconds between scans
+      depends_on:
+        mini-ca-init:
+            condition: service_completed_successfully
+      restart: unless-stopped
+
+# (optional) ad‑hoc CLI for manual issuing
+    mini-ca-cli:
+      image: minica:latest
+      profiles: [ "cli" ] # keeps it from starting automatically
+      volumes:
+        - mini-data:/data
+      entrypoint: [ "mini_ca.py" ]
