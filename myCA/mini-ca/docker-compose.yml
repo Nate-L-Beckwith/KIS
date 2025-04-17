@@ -1,33 +1,41 @@
-# mini-ca.yml  (include or copy‑paste into other stacks)
+
 volumes:
   mini-data:
 
-x-mini-ca-build: &mini-build
-  context: ../mini-ca
+x-build: &mini-build
+  context: .              # <-- matches the Dockerfile directory
   dockerfile: docker/Dockerfile
 
 services:
+# ----------------------------------------------------------------------
+# 1) one‑shot initialiser (fixes volume ownership + creates root CA)
+# ----------------------------------------------------------------------
   mini-ca-init:
     image: minica:latest
-    build:
-      <<: *mini-build
-    user: root              # run as root just this once
-    volumes: [ mini-data:/data ]
-    command: >
-      sh -c "
-        echo 'fixing perms...';
-        chown -R 1001:1001 /data 2>/dev/null || true;
-        exec su myca -s /bin/sh -c 'mini_ca.py init --force'
-      "
-    restart: 'no'
-
-  mini-ca:
-    image: minica:latest          # the “real” CA service
     build: *mini-build
-    user: 1001:1001               # drop privs for normal use
-    volumes: [ mini-data:/data ]
-    entrypoint: [ "mini_ca.py" ]  # expose the CLI
-    # command: ["watch", "--file", "/data/DOMAINS"]  # example long‑running mode
+    user: root
+    entrypoint: [ "/bin/sh", "-c" ]      #  <<< FIXED
+    command: |
+      echo '[init] fixing perms…'        &&
+      chown -R 1001:1001 /data 2>/dev/null || true &&
+      echo '[init] generating / refreshing root CA…' &&
+      su myca -s /bin/sh -c 'mini_ca.py init --force'
+    volumes:
+      - mini-data:/data
+    restart: "no"
+
+# ----------------------------------------------------------------------
+# 2) Long‑running CA service (optional watcher)
+# ----------------------------------------------------------------------
+  mini-ca:
+    image: minica:latest
+    build: *mini-build
+    user: 1001:1001
+    entrypoint: [ "mini_ca.py" ]   # keep the Typer CLI
+    # uncomment to run in watch mode all the time
+    # command: [ "watch", "--file", "/data/DOMAINS" ]
     depends_on:
       mini-ca-init:
         condition: service_completed_successfully
+    volumes:
+      - mini-data:/data

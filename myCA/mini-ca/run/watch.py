@@ -1,7 +1,7 @@
 import hashlib, time, subprocess, shlex
 from pathlib import Path
 
-def _finger(s: str) -> str: return hashlib.sha1(s.encode()).hexdigest()
+def _finger(s: str) -> str: return hashlib.sha256(s.encode()).hexdigest()
 
 def _clean(p: Path):
     return [l.strip() for l in p.read_text().splitlines()
