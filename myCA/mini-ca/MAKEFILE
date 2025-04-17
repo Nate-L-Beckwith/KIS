@@ -1,0 +1,44 @@
+IMAGE?=mini-ca
+TAG?=latest
+REGISTRY?=                       # e.g. ghcr.io/your-user  (leave blank for local)
+
+DOCKERFILE = docker/Dockerfile
+
+.PHONY: all build push shell init issue watch logs clean bootstrap
+
+all: build
+build:			## Build the Docker image
+	docker build -f $(DOCKERFILE) -t $(REGISTRY)$(IMAGE):$(TAG) .
+
+push: build		## Push the image to $(REGISTRY)
+	docker push $(REGISTRY)$(IMAGE):$(TAG)
+
+shell:			## Drop into a shell inside the built image
+	docker run --rm -it $(REGISTRY)$(IMAGE):$(TAG) /bin/sh
+
+init:			## Initialise the CA (creates root key/cert in named volume)
+	docker compose run --rm mini-ca init
+
+issue:			## Issue a cert:  make issue HOST=example --san www.example
+ifeq ($(HOST),)
+	$(error HOST variable missing – use ‘make issue HOST=myhost’)
+endif
+	docker compose run --rm mini-ca issue $(HOST) $(ARGS)
+
+watch:			## Start the domain‑list watcher in background
+	docker compose up -d mini-ca
+
+logs:			## Tail container logs
+	docker compose logs -f mini-ca
+
+clean:			## Remove the named volume + rebuild everything
+	-docker compose down -v
+	docker volume rm mini-ca-data || true
+	docker image rm $(REGISTRY)$(IMAGE):$(TAG) || true
+
+bootstrap:		## Convenience: build → init → issue demo cert
+	make build
+	make init
+	make issue HOST=demo.local ARGS="--san *.demo.local"
+	@echo "Demo cert created for demo.local"
+
