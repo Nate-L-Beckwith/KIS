@@ -1,61 +1,19 @@
-
-###############################################################################
-#  PERSISTENT DATA
-#  --------------‑
-#  * mini‑ca-data holds the root key/cert + every certificate you issue.
-###############################################################################
-
-###############################################################################
-#  MINI‑CA  (single, all‑in‑one container)
-#  ---------------------------------------
-#  * `init` sub‑command — one‑shot to create the root CA (run via `docker compose run`).
-#  * `issue` sub‑command — ad‑hoc certificate issuance.
-#  * `watch` sub‑command — batch‑issuer that tails a domain list and auto‑renews.
-#
-#  Change **nothing** below unless you know what you’re doing 😉
-###############################################################################
+################################################################
+# drop‑in snippet – adjust indent & add to your own compose
+################################################################
 services:
-  mini-ca:
-    image: ghcr.io/<your‑github‑user>/mini-ca:latest     # ← push / pull from your own registry
-    container_name: mini-ca
-    user: 1001:1001               # runs as the non‑root “myca” user inside the image
+  minica:
+    image: minica:latest          # make sure you built the image first
+    # build:
+    #   context: ./mini-ca
+    #   dockerfile: docker/Dockerfile
     volumes:
-      - mini-ca-data:/data        # **the only volume you normally need**
-    #---------------------------------------------------------------------
-    # CMD / ENTRYPOINT notes
-    #---------------------------------------------------------------------
-    # · No command  -> defaults to `sleep infinity` (idle CA, handy for `exec`)
-    # · init        -> creates rootCA if absent
-    # · issue ...   -> one‑off certificate
-    # · watch ...   -> daemon that reads DOMAINS file & renews
-    # command: ["sleep","infinity"]
-    # command: ["init"]
-    # command: ["issue","myhost","--san","*.myhost.local"]
-    # command: ["watch","--file","/data/DOMAINS","--refresh","12h"]
-    #---------------------------------------------------------------------
-    environment:
-      # =========  REQUIRED  =============================================
-      MYCA_ROOT: /data/rootCA           # where the root CA key/cert live
-      # =========  COMMON OPTIONALS  =====================================
-      # MYCA_CERTS: /data/certificates  # directory for issued certs
-      # DAYS: 825                       # validity period for new certs
-      # FORCE: "true"                   # overwrite existing root CA on init
-      # UID: "1001"                     # numeric UID to chown new files
-      # GID: "1001"                     # numeric GID for group ownership
-      # =========  BATCH / WATCH MODE  ===================================
-      # WATCH_FILE: /data/DOMAINS       # file containing FQDNs (one per line)
-      # WATCH: "true"                   # enable domain‑list watcher
-      # REFRESH: 12h                    # how often to re‑check / renew certs
-
-
-
+      - mini-data:/data           # or an absolute host path
+    # environment:
+    #   MYCA_ROOT: /data/rootCA
+    #   MYCA_CERTS: /data/certificates
+    #   UID: "1001"               # build‑arg; document here
+    command: [ "--help" ]         # change to `watch` / `init` / `issue …`
 
 volumes:
-  mini-ca-data:   # external: true   # ← uncomment to share across projects
-    restart: unless-stopped
-
-
-
-
-
-
+  mini-data:

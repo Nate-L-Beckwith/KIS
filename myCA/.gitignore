@@ -1,0 +1,6 @@
+# keep the context tiny
+__pycache__/
+*.pyc
+*.pyo
+*.swp
+*.egg-info/
