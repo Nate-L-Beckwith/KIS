@@ -17,8 +17,8 @@ def init_ca(ca_dir: Path, force: bool = False) -> None:
 
     key = rsa.generate_private_key(65537, 4096)
     subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "mini‑ca"),
-        x509.NameAttribute(NameOID.COMMON_NAME,       "mini‑ca root"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "mini-ca"),
+        x509.NameAttribute(NameOID.COMMON_NAME,       "mini-ca root"),
     ])
     cert = (x509.CertificateBuilder()
             .subject_name(subject)
