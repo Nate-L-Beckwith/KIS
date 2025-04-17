@@ -1,19 +1,33 @@
-################################################################
-# drop‑in snippet – adjust indent & add to your own compose
-################################################################
-services:
-  minica:
-    image: minica:latest          # make sure you built the image first
-    # build:
-    #   context: ./mini-ca
-    #   dockerfile: docker/Dockerfile
-    volumes:
-      - mini-data:/data           # or an absolute host path
-    # environment:
-    #   MYCA_ROOT: /data/rootCA
-    #   MYCA_CERTS: /data/certificates
-    #   UID: "1001"               # build‑arg; document here
-    command: [ "--help" ]         # change to `watch` / `init` / `issue …`
-
+# mini-ca.yml  (include or copy‑paste into other stacks)
 volumes:
   mini-data:
+
+x-mini-ca-build: &mini-build
+  context: ../mini-ca
+  dockerfile: docker/Dockerfile
+
+services:
+  mini-ca-init:
+    image: minica:latest
+    build:
+      <<: *mini-build
+    user: root              # run as root just this once
+    volumes: [ mini-data:/data ]
+    command: >
+      sh -c "
+        echo 'fixing perms...';
+        chown -R 1001:1001 /data 2>/dev/null || true;
+        exec su myca -s /bin/sh -c 'mini_ca.py init --force'
+      "
+    restart: 'no'
+
+  mini-ca:
+    image: minica:latest          # the “real” CA service
+    build: *mini-build
+    user: 1001:1001               # drop privs for normal use
+    volumes: [ mini-data:/data ]
+    entrypoint: [ "mini_ca.py" ]  # expose the CLI
+    # command: ["watch", "--file", "/data/DOMAINS"]  # example long‑running mode
+    depends_on:
+      mini-ca-init:
+        condition: service_completed_successfully
