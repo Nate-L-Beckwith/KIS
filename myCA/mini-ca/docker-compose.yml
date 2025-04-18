@@ -1,34 +1,32 @@
-volumes:
-   mini-data:
-       driver: local
-       driver_opts:
-           type: "none"
-           device: "/var/lib/docker/volumes/mini-data/_data" # default path
-           o: "bind,uid=1001,gid=1001"
+x-build: &build                       # ← reusable block
+  context: .
+  dockerfile: docker/Dockerfile      # path inside the repo
 
+services:
+  mini-ca-init:
+    image: minica:latest             # still tags the image so it can cache
+    build: *build                    # ← add this line
+    command: ["init", "--force"]
+    user: root
+    volumes:
+      - mini-data:/data
 
-services: # one‑shot: create (or verify) the root CA
-    mini-ca-init:
-      image: minica
-      volumes: [ mini-data:/data ]
-      command: [ "mini_ca.py", "init", "--force" ]
-      restart: "no" # long‑running watcher – auto‑issues certs listed in /data/DOMAINS
-
-    mini-ca:
-      image: minica:latest
-      volumes:
-        - mini-data:/data
-    # start mini_ca.py with the *watch* sub‑command
-      entrypoint: [ "mini_ca.py", "watch", "--file", "/data/DOMAINS", "--interval", "10" ] # ← seconds between scans
-      depends_on:
-        mini-ca-init:
-            condition: service_completed_successfully
-      restart: unless-stopped
-
-# (optional) ad‑hoc CLI for manual issuing
-    mini-ca-cli:
+  mini-ca:
+    image: minica:latest
+    build: *build                    # ← add this line
+    command: ["watch", "--file", "/data/DOMAINS"]
+    volumes:
+      - mini-data:/data
+    depends_on:
+      mini-ca-init:
+        condition: service_completed_successfully
+    restart: unless-stopped          # long‑running service
+  mini-ca-cli:
       image: minica:latest
       profiles: [ "cli" ] # keeps it from starting automatically
       volumes:
         - mini-data:/data
       entrypoint: [ "mini_ca.py" ]
+
+volumes:
+  mini-data:
