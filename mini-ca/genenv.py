@@ -30,7 +30,7 @@ env_file  = root / ".env"
 old_env   = env_file.read_text().splitlines() if env_file.exists() else []
 
 host      = input(f"Docker host IP [{host_ip()}]: ").strip() or host_ip()
-email     = input(f"Initial NPM admin email [{old('INITIAL_ADMIN_EMAIL') or 'admin@example.com'}]: ").strip() or \
+email     = input(f"Initial NPM admin email [{old('INITIAL_ADMIN_EMAIL') or 'admin@npm'}]: ").strip() or \
             (old('INITIAL_ADMIN_EMAIL') or "admin@npm")
 
 env_file.write_text(textwrap.dedent(f"""\
