@@ -3,6 +3,9 @@
         {
             "name": "KIS",
             "path": "."
+        },
+        {
+            "path": "mini-ca"
         }
     ]
 }
