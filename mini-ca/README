@@ -1,174 +1,237 @@
-# mini‑ca 📜🔐
-*A self‑contained, wheels‑only, Python‑powered tiny CA for local labs & CI.*
+# mini‑ca
 
 ---
 
-## 0 . TL;DR – 30 sec quick‑start
+```markdown
+<!-- ────────────────────────────────────────────────────────── -->
+<!--  mini‑ca ⸺ a pocket‑sized Certificate Authority          -->
+<!--  © 2024‑present – MIT‑licensed                            -->
+<!-- ────────────────────────────────────────────────────────── -->
+
+<div align="center">
+
+# 🔐 mini‑ca
+*A zero‑dependency CA in a single Docker image*
+
+[![CI](https://img.shields.io/badge/build-passing-brightgreen)](#)
+[![license](https://img.shields.io/badge/license-MIT-blue)](#)
+
+</div>
+
+---
+
+## Contents <!-- omit in toc -->
+
+1. [Highlights](#highlights)
+2. [Quick start](#quick-start)
+3. [Repo layout](#repo-layout)
+4. [Docker stack](#docker-stack)
+5. [The CLI](#the-cli)
+6. [Live domain‑watch](#live-domainwatch)
+7. [Make targets](#make-targets)
+8. [Clean ↔ Rebuild](#clean-↔-rebuild)
+9. [💣 make nuke – full reset](#make-nuke--full-reset)
+10. [Configuration](#configuration)
+11. [Troubleshooting](#troubleshooting)
+
+---
+
+## Highlights
+
+| ✔︎ | Feature |
+|----|---------|
+| **One‑shot root CA** – `entry-init.sh` generates a 10‑year self‑signed *rootCA.key* + *rootCA.crt*. |
+| **Offline image** – all wheels baked during build, **no network I/O at runtime**. |
+| **Idempotent init** – safe re‑runs; add `--force` to rotate keys. |
+| **Leaf certs on demand** – `issue <domain> [--san alt …]` writes key/cert/chain into its own folder. |
+| **Wildcard + SAN support** – `*.dev` + unlimited `--san host1 --san host2`. |
+| **Batch watch** – a long‑running container tails `DOMAINS` and auto‑issues. |
+| **Named volume** – everything lives under **`minica-data`** (`/data` in the container). |
+| **Profiles & Roles** – *init* (bootstrap) vs *minica* (watcher) vs *cli* (side‑car). |
+| **Makefile UX** – `build • setup • up • stop • clean • nuke`. |
+| **Colourised logs** – success messages begin with `✅`. |
+| **Full teardown** – `make nuke` wipes containers, volume, images, builder cache. |
+
+---
+
+## Quick start
 
 ```bash
-git clone https://…/mini-ca.git
+git clone https://github.com/your‑org/mini-ca.git
 cd mini-ca
 
-# build image (no network at runtime)
-make                 # = docker compose -f docker-compose.yml build
+# 1. Build image & create root CA (+ volume)
+make setup             # docker compose --profile setup up --build
 
-# one‑shot bootstrap – creates root CA in the volume
-docker compose --profile setup up --build   # removes itself when done
+# 2. Start the live watcher
+make up                # docker compose up -d
 
-# start the long‑running certificate watcher
-docker compose up -d                        # container: mini-ca-minica-1
-
-#   OR issue certs imperatively:
-docker compose run --rm cli issue foo.dev --san www.foo.dev api.foo.dev
+# 3. Issue a cert anytime
+docker compose run --rm cli \
+        issue blog.acme.test --san www.blog.acme.test
 ```
 
-You’ll get
+Files appear under the volume:
+
+``` tree
+/data/
+├─ rootCA/
+│  ├─ rootCA.key
+│  └─ rootCA.crt
+└─ certificates/
+   └─ blog.acme.test/
+      ├─ blog.acme.test.key
+      ├─ blog.acme.test.crt
+      └─ chain.pem        (root + leaf)
+```
+
+Import *rootCA.crt* into your trust store → browser green‑locks all leaf certs.
+
+---
+
+##  Repo layout
+
+```tree
+mini-ca/
+├─ docker/
+│  ├─ Dockerfile
+│  ├─ entry.sh          # default entrypoint (watch service)
+│  └─ entry-init.sh     # one‑shot CA bootstrap
+├─ run/                 # pure‑Python CA logic (Typer CLI)
+│  ├─ mini_ca.py
+│  ├─ init_ca.py | issue_cert.py | watch.py | …
+├─ docker-compose.yml   # production bundle
+├─ Makefile             # convenience wrapper
+├─ requirements.txt     # runtime deps (wheels cached)
+└─ README.md
+```
+
+---
+
+##  Docker stack
+
+| Service  | Profile   | Role | Entry | Auto‑restart |
+|----------|-----------|------|-------|--------------|
+| **init** | `setup`   | bootstrap root CA      | `entry-init.sh` | *no* |
+| **cli**  | `cli`     | ad‑hoc commands        | `entry.sh`      | *no* |
+| **minica** | default | live watcher           | `entry.sh`      | `unless-stopped` |
+
+Volume: **`minica-data`** mounts to `/data` in every container.
+
+---
+
+##  The CLI
 
 ```text
-minica-data/
-├── rootCA/
-│   ├── rootCA.crt
-│   └── rootCA.key
-└── certificates/
-    └── foo.dev/
-        ├── foo.dev.crt
-        └── foo.dev.key
+mini_ca.py init   [--force]
+mini_ca.py issue  DOMAIN [--san ALT_SAN …]
+mini_ca.py watch  [--file /data/DOMAINS]
+```
+
+* **init** – generate or rotate the root CA.
+* **issue** – create key/cert/chain for *DOMAIN* (supports wildcards).
+* **watch** – follow a text file and issue for each new line.
+
+Run from any container (or the host if you mount the volume):
+
+```bash
+docker run --rm -v minica-data:/data minica \
+       mini_ca.py issue "*.wild.dev" --san api.wild.dev
 ```
 
 ---
 
-## 1 . Image layout
+##  Live domain‑watch
 
-| Stage / tag | Purpose | Entrypoint |
-|-------------|---------|------------|
-| **`minica:latest`** | Single runtime image containing CLI & watcher. | `entry.sh` (default) |
-| *(same image, different entrypoint)* | one‑shot bootstrap used by profile **setup** | `entry‑init.sh` |
+1. `make up` (starts the *minica* watcher).
+2. Append lines to `/data/DOMAINS` → certificates appear.
 
-Both layers are built from *docker/Dockerfile*; wheels are baked during the
-*builder* stage, so the runtime layer has **no build tools & no internet need**.
+Append from the host:
 
----
-
-## 2 . Docker Compose bundle
-
-```yaml
-services:
-  init:                # profile: setup
-    build: docker/
-    image: minica:latest
-    user: "0"                          # root so it can chown /data
-    entrypoint: ["entry-init.sh"]
-    volumes: [minica-data:/data]
-    restart: "no"
-    profiles: ["setup"]
-
-  minica:              # long‑running daemon
-    build: .
-    image: minica:latest
-    volumes: [minica-data:/data]
-    restart: unless-stopped
-
-  cli:                 # throw‑away “swiss‑army‑knife”
-    image: minica:latest
-    entrypoint: ["mini_ca.py"]
-    profiles: ["cli"]
-    volumes: [minica-data:/data]
-
-volumes:
-  minica-data:         # owns everything under /data
+```bash
+echo "store.acme.dev" | \
+  docker run --rm -i -v minica-data:/data alpine sh -c 'cat >>/data/DOMAINS'
 ```
 
-### Profiles
-
-| profile | What it does |
-|---------|--------------|
-| **setup** | `init` only – run once to create the root CA & fix permissions |
-| *(default)* | `minica` – starts the batch watcher |
-| **cli** | spawns the on‑demand CLI container |
+The watcher logs: `✅  Certificate issued for 'store.acme.dev'`.
 
 ---
 
-## 3 . CLI reference (`mini_ca.py`)
+##  Make targets
 
-| Command | Options | Description |
-|---------|---------|-------------|
-| **`init`** | `--force` : overwrite existing root CA | Generates `/data/rootCA/{rootCA.key,rootCA.crt}` |
-| **`issue DOMAIN`** | `--san SAN ...` (repeat) | Writes key/cert to `/data/certificates/DOMAIN/` |
-| **`watch`** | `--file /path/to/file` (default `/data/DOMAINS`) | Tails *file*; each new line = domain to issue |
+| Target      | Description |
+|-------------|-------------|
+| **build**   | Build / rebuild the image (`docker compose build`). |
+| **setup**   | Build *and* run the `init` profile → creates volume & root CA. |
+| **up**      | Start the watcher (`docker compose up -d`). |
+| **stop**    | Soft stop containers (volume kept). |
+| **clean**   | Stop & remove containers **and** the volume `minica-data`. |
+| **nuke**    | Full wipe: containers + volume + `minica:*` images + BuildKit cache. |
 
-All commands honour two env‑vars that you can override:
+Optional vars:
 
-```text
-MYCA_ROOT=/data/rootCA          # location of root key/cert
-MYCA_CERTS=/data/certificates   # where issued leaf certs go
+```bash
+WATCH=0 make up      # skip starting the watcher
+UID=1234 make build  # bake a different runtime uid
 ```
 
 ---
 
-## 4 . Watcher semantics
+##  Clean ↔ Rebuild
 
-* Reads (or creates) the `DOMAINS` file inside the volume.
-* Every non‑blank, non‑comment line is treated as a domain.
-* New domains → calls the same `issue` routine internally.
-* Certificates are re‑issued if **not present**; no expiry rotation yet.
+| Action                         | Command |
+|--------------------------------|---------|
+| Tear down & keep data          | `make stop` |
+| Tear down & **delete data**    | `make clean` |
+| Re‑initialise root CA          | `make setup` |
+| Start fresh watcher            | `make up` |
 
----
-
-## 5 . Make targets
-
-| target | command |
-|--------|---------|
-| `make` or `make build` | `docker compose -f docker-compose.yml build` |
-| `make up` | `docker compose up -d` |
-| `make logs` | `docker compose logs -f` |
-| `make clean` | `docker compose down -v --remove-orphans` |
+Root CA changes every time you run **setup**.
+Back it up if clients already trust it.
 
 ---
 
-## 6 . How to embed mini‑ca in another stack
+##  make nuke – full reset
 
-```yaml
-# kitchen‑owl/docker-compose.yml
-services:
-  ca:
-    image: minica:latest          # or `build: ./mini-ca`
-    volumes:
-      - owl-ca-data:/data
-    restart: unless-stopped
-
-volumes:
-  owl-ca-data:
+```bash
+make nuke
 ```
 
-Optionally vend the root certificate to your other containers:
+* Stops **all** running *mini‑ca* containers.
+* Runs `docker compose down --volumes`.
+* Deletes volume **minica-data**.
+* Removes every local image tagged `minica:*`.
+* Clears BuildKit cache (`docker builder prune -f`).
 
-```yaml
-kitchen-owl:
-  ...
-  volumes:
-    - owl-ca-data:/ca   # read‑only in app container
-  environment:
-    REQUESTS_CA_BUNDLE: /ca/rootCA/rootCA.crt
-```
+You’re back to zero; follow *Quick‑start* again.
 
 ---
 
-## 7 . Security & production warnings
+##  Configuration
 
-* **Never place the volume on a host you do not trust.**
-  The root key is unencrypted (just like mkcert / step‑ca default dev mode).
-* Suitable for **development, testing, homelab**.
-  For real production use you’d want hardware‑backed storage or at least a
-  pass‑phrase, plus CRL/OCSP, revocation, audit, etc.
+| Variable          | Default            | Purpose |
+|-------------------|--------------------|---------|
+| `MYCA_ROOT`       | `/data/rootCA`     | root CA folder |
+| `MYCA_CERTS`      | `/data/certificates` | leaf certificates |
+| `UID` (build‑arg) | `1001`             | runtime user id |
+
+Edit `docker-compose.yml` or pass `--build-arg UID=…` as you prefer.
 
 ---
 
-## 8 . Troubleshooting checklist
+##  Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `PermissionError: '/data/DOMAINS'` | Volume first created by root, not chowned | run the `init` profile again (or `docker exec` and `chown -R 1001:1001 /data`) |
-| `FileNotFoundError '/data/rootCA/rootCA.key'` | Root CA missing | `docker compose run --rm cli init --force` |
-| Compose says “services must be a mapping” | Invoked from wrong folder | `cd mini-ca` (the directory holding `docker-compose.yml`) |
+| Problem | Fix |
+|---------|-----|
+| `Permission denied: '/data/DOMAINS'` | volume from previous run; `make clean` or `make nuke`. |
+| `No such option --force` in logs     | stale image; `make build`. |
+| Want interactive watch w/out lock‑up | `docker compose run -d cli watch` then `docker logs -f …`. |
+| Disk space from old builds           | `make nuke` clears images & cache. |
+
+---
+
+###  License
+
+[MIT](LICENSE) – do whatever you want; star the repo if you find it useful ❤️
 
 ---
