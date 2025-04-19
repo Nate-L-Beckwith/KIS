@@ -8,14 +8,22 @@ SETUP_PROFILE  = --profile setup
 
 COMPOSE        = docker compose -f docker-compose.yml --project-name $(PROJECT)
 
+# (kept) – used by the one‑shot CA bootstrap
 COMPOSE_RUN    = $(COMPOSE) $(SETUP_PROFILE) run --rm
 COMPOSE_UPD    = $(COMPOSE) up -d
 
-.PHONY: help build init setup up logs clean nuke default
+# ───────────── extra helpers for issue/sync ─────────────
+CLI_RUN        = $(COMPOSE) run --rm cli
+SYNC_RUN       = $(COMPOSE) --profile sync \
+                 run --rm -e DOMAIN=$(DOMAIN) cert-sync
+
+# ───────────── existing targets ─────────────
+.PHONY: help build init setup up logs clean nuke default \
+        issue restart-npm
 
 help:
 	@grep -E '^[a-zA-Z_-]+:' $(MAKEFILE_LIST) | \
-	  awk 'BEGIN {FS=":"} {printf "\033[36m%-10s\033[0m\n", $$1}'
+	  awk 'BEGIN {FS=":"} {printf "\033[36m%-15s\033[0m%s\n", $$1, $$2}'
 
 build:
 	$(COMPOSE) build
@@ -24,8 +32,10 @@ build:
 init: build
 	$(COMPOSE_RUN) init
 
+## Build → init (once) → start watcher
 setup: init up
 
+## Start / restart long‑running watcher
 up: build
 	$(COMPOSE_UPD)
 
@@ -45,3 +55,20 @@ nuke: clean
 	@echo "✅  project '$(PROJECT)' wiped clean"
 
 default: help
+
+# ───────────── new targets ─────────────
+## make issue DOMAIN=foo.example.com
+issue:
+ifndef DOMAIN
+	$(error ❌  DOMAIN variable not set – use ‘make issue DOMAIN=…’)
+endif
+	@echo "👉  issuing $(DOMAIN)"
+	$(CLI_RUN) issue $(DOMAIN)
+	@echo "👉  copying into NPM"
+	$(SYNC_RUN)
+	@$(MAKE) restart-npm
+
+restart-npm:
+	@echo "👉  restarting Nginx‑Proxy‑Manager"
+	$(COMPOSE) restart -t 5 npm
+	@echo "✅  done – open the NPM UI ▶ SSL Certificates"

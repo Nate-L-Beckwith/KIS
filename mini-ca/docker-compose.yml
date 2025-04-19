@@ -1,46 +1,143 @@
-# mini-ca/docker-compose.yml
-#
-# ── production bundle ──────────────────────────────────────────
+# Project: mini-ca
+################################################################################
+#  regular apps                                                                #
+################################################################################
 services:
-
-  # -------------------------------------------------------------
-  # one‑shot initialiser – create /data/rootCA and fix ownership
-  # run with:  docker compose --profile setup up --build
-  # -------------------------------------------------------------
-  init:
-    image: minica:latest
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    user: "0"                        # root so chown works
+  adguardhome:
+    image: adguard/adguardhome
+    network_mode: host
+    restart: unless-stopped
     volumes:
-      - minica-data:/data
-    entrypoint: ["entry-init.sh"]
-    restart: "no"
-    profiles: ["setup"]              # excluded from plain “up -d”
+      - dns_home_workdir:/opt/adguardhome/work
+      - dns_home_conf:/opt/adguardhome/conf
 
-  # -------------------------------------------------------------
-  # long‑running watcher – reads /data/DOMAINS, issues certs
-  # starts with:  docker compose up -d
-  # -------------------------------------------------------------
-  minica:
-    image: minica:latest
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
+  wireguard:
+    image: linuxserver/wireguard
+    cap_add: [ NET_ADMIN, SYS_MODULE ]
+    networks:
+      net-stack: { ipv4_address: 172.20.0.3 }
+    ports: [ "51820:51820/udp" ]
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - SERVERURL=${SERVERURL}
+      - SERVERPORT=${SERVERPORT}
+      - PEERS=3
+      - PEERDNS=${PEERDNS}
+      - INTERNAL_SUBNET=${INTERNAL_SUBNET}
     volumes:
-      - minica-data:/data
+      - wireguard_config:/config
+      - /lib/modules:/lib/modules:ro
     restart: unless-stopped
 
-  # -------------------------------------------------------------
-  # ad‑hoc CLI – convenient wrapper for one‑off commands
-  # example:  docker compose run --rm cli issue example.dev --san www.example.dev
-  # -------------------------------------------------------------
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: npm
+    depends_on: [ db ]
+    networks:
+      net-stack: { ipv4_address: 172.20.0.10 }
+    ports:
+      - "${NPM_PORT}"
+      - "${NPM_UI_PORT}"
+      - "${NPM_S_PORTS}"
+    environment:
+      - DB_MYSQL_HOST=${DB_MYSQL_HOST}
+      - DB_MYSQL_PORT=${DB_MYSQL_PORT}
+      - DB_MYSQL_USER=${DB_MYSQL_USER}
+      - DB_MYSQL_PASSWORD=${NPM_DB_PASSWORD}
+      - DB_MYSQL_NAME=${DB_MYSQL_NAME}
+      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
+      - INITIAL_ADMIN_PASSWORD=${NPM_INITIAL_PASSWORD}
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+      - minica-data:/certs:ro
+    restart: unless-stopped
+
+  db:
+    image: jc21/mariadb-aria:latest
+    container_name: npm_db
+    networks:
+      net-stack: { ipv4_address: 172.20.0.11 }
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_MYSQL_NAME}
+      - MYSQL_USER=${DB_MYSQL_USER}
+      - MYSQL_PASSWORD=${NPM_DB_PASSWORD}
+      - MARIADB_AUTO_UPGRADE=1
+    volumes:
+      - npm_mysql:/var/lib/mysql
+    restart: unless-stopped
+
+################################################################################
+#  mini‑ca  – local Certificate Authority                                      #
+################################################################################
+  init:
+    image: ghcr.io/nate-l-beckwith/minica:latest
+    container_name: minica-init
+    entrypoint: [ "entry-init.sh" ]   # does the chown + root‑CA bootstrap
+    user: "0"
+    volumes: [ minica-data:/data ]
+    profiles: [ "setup" ]             # run once via --profile setup
+    restart: "no"
+
+  minica:
+    image: ghcr.io/nate-l-beckwith/minica:latest
+    container_name: minica
+    entrypoint: [ "entry.sh" ]        # long‑running watcher
+    networks:
+      net-stack: { ipv4_address: 172.20.0.250 }
+    volumes: [ minica-data:/data ]
+    restart: unless-stopped
+
   cli:
-    extends: minica
-    entrypoint: ["mini_ca.py"]
-    profiles: ["cli"]
+    image: ghcr.io/nate-l-beckwith/minica:latest
+    container_name: minica-cli
+    entrypoint: [ "mini_ca.py" ]      # Typer CLI
+    volumes:
+      - minica-data:/data
+      - npm_data:/npm-data            # for cert‑sync convenience
+    networks: [ net-stack ]
+    # no profile → always addressable from 'docker compose run'
+
+################################################################################
+#  cert‑sync – one‑shot copy into NPM after every issue                         #
+################################################################################
+  cert-sync:
+    image: alpine:latest
+    container_name: cert-sync
+    environment:
+      - DOMAIN
+    command: >
+      sh -ceu '
+        SRC="/certs/certificates/$${DOMAIN}"
+        DST="/npm-data/custom_ssl/$$(echo "$${DOMAIN}" | tr . _ )"
+        mkdir -p "$${DST}"
+        cp "$${SRC}/$${DOMAIN}.crt" "$${DST}/fullchain.pem"
+        cp "$${SRC}/$${DOMAIN}.key" "$${DST}/privkey.pem"
+        echo "✅  copied cert to $${DST}"
+        touch /npm-data/reload.flag
+      '
+    volumes:
+      - minica-data:/certs:ro
+      - npm_data:/npm-data
+    network_mode: none
+    depends_on: [ cli ]
+    profiles: [ "sync" ]
+    restart: "no"
+
+networks:
+  net-stack:
+    driver: bridge
+    ipam:
+      config: [ { subnet: 172.20.0.0/24 } ]
 
 volumes:
+  dns_home_workdir:
+  dns_home_conf:
+  wireguard_config:
+  npm_data:
+  npm_letsencrypt:
+  npm_mysql:
   minica-data:
-    name: minica-data
