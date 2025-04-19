@@ -1,3 +1,4 @@
-
+cryptography
 typer[all]
 watchfiles
+watchdog

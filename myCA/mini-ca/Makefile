@@ -1,20 +1,18 @@
-IMAGE := minica:latest
-CTX   := $(CURDIR)
+# mini-ca/Makefile
+COMPOSE = docker compose -f docker-compose.yml
 
 build:
-	docker build -f docker/Dockerfile -t $(IMAGE) .
+	$(COMPOSE) build
 
-shell: build
-	docker run --rm -it -v mini-data:/data $(IMAGE) sh
+setup:
+	$(COMPOSE) --profile setup up --build
 
-init: build
-	docker run --rm -v mini-data:/data $(IMAGE) init
+up:
+	$(COMPOSE) up -d
 
-issue: build
-	@if [ -z "$$D" ]; then echo "Use:  make issue D=host.example"; exit 1; fi
-	docker run --rm -v mini-data:/data $(IMAGE) issue $$D
+cert:
+	$(COMPOSE) --profile cli run --rm cli issue $(DOMAIN) $(addprefix --san ,$(SAN))
 
-watch: build
-	docker run --rm -v mini-data:/data $(IMAGE) watch
-
-.PHONY: build shell init issue watch
+clean:
+	$(COMPOSE) down --volumes --remove-orphans
+	docker volume rm -f minica-data 2>/dev/null || true

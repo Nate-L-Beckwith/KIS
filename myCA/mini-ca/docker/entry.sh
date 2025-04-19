@@ -1,4 +1,5 @@
 #!/usr/bin/env sh
-# tiny wrapper – forwards every CLI arg to Typer
 set -eu
-exec python /opt/myca/mini_ca.py "$@"
+
+echo "[minica] watching /data/DOMAINS …"
+exec mini_ca.py watch --file /data/DOMAINS

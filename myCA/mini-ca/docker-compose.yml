@@ -1,32 +1,46 @@
-x-build: &build                       # ← reusable block
-  context: .
-  dockerfile: docker/Dockerfile      # path inside the repo
-
+# mini-ca/docker-compose.yml
+#
+# ── production bundle ──────────────────────────────────────────
 services:
-  mini-ca-init:
-    image: minica:latest             # still tags the image so it can cache
-    build: *build                    # ← add this line
-    command: ["init", "--force"]
-    user: root
-    volumes:
-      - mini-data:/data
 
-  mini-ca:
+  # -------------------------------------------------------------
+  # one‑shot initialiser – create /data/rootCA and fix ownership
+  # run with:  docker compose --profile setup up --build
+  # -------------------------------------------------------------
+  init:
     image: minica:latest
-    build: *build                    # ← add this line
-    command: ["watch", "--file", "/data/DOMAINS"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    user: "0"                        # root so chown works
     volumes:
-      - mini-data:/data
-    depends_on:
-      mini-ca-init:
-        condition: service_completed_successfully
-    restart: unless-stopped          # long‑running service
-  mini-ca-cli:
-      image: minica:latest
-      profiles: [ "cli" ] # keeps it from starting automatically
-      volumes:
-        - mini-data:/data
-      entrypoint: [ "mini_ca.py" ]
+      - minica-data:/data
+    entrypoint: ["entry-init.sh"]
+    restart: "no"
+    profiles: ["setup"]              # excluded from plain “up -d”
+
+  # -------------------------------------------------------------
+  # long‑running watcher – reads /data/DOMAINS, issues certs
+  # starts with:  docker compose up -d
+  # -------------------------------------------------------------
+  minica:
+    image: minica:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - minica-data:/data
+    restart: unless-stopped
+
+  # -------------------------------------------------------------
+  # ad‑hoc CLI – convenient wrapper for one‑off commands
+  # example:  docker compose run --rm cli issue example.dev --san www.example.dev
+  # -------------------------------------------------------------
+  cli:
+    extends: minica
+    entrypoint: ["mini_ca.py"]
+    profiles: ["cli"]
 
 volumes:
-  mini-data:
+  minica-data:
+    name: minica-data

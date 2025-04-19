@@ -1,47 +1,36 @@
-#!/usr/bin/env python3
-
-"""
-mini-casinglebinary development certificate authority
-
-Three sub-commands:
-
-    init      create / verify the root CA
-    issue     issue a single certificate
-    watch     watch a domains file & issue certs automatically
-"""
+#!/usr/bin/env python
 from pathlib import Path
-import os, time, hashlib, typer
+import typer
+
 from init_ca import init_ca
 from issue_cert import issue_cert
+from watch import watch_file
 
-app = typer.Typer()
-CA_DIR      = Path(os.getenv("MYCA_ROOT",  "/data/rootCA"))
-CERTS_DIR   = Path(os.getenv("MYCA_CERTS", "/data/certificates"))
+APP = typer.Typer(add_completion=False)
+CA_DIR     = Path("/data/rootCA")
+CERTS_DIR  = Path("/data/certificates")
 
-@app.command()
-def init(force: bool = typer.Option(False, help="overwrite existing CA")):
+
+@APP.command()
+def init(force: bool = typer.Option(
+         False, help="Overwrite existing CA if it exists")):
+    """Initialise or recreate the root CA."""
     init_ca(CA_DIR, force)
 
-@app.command()
+
+@APP.command()
 def issue(domain: str,
           san: list[str] = typer.Option(None, "--san", help="extra SANs")):
+    """Issue a certificate for *DOMAIN*."""
     issue_cert(domain, san or [], CA_DIR, CERTS_DIR)
 
-@app.command()
+
+@APP.command()
 def watch(file: Path = typer.Option("/data/DOMAINS", "--file",
-                                    help="domain list to track"),
-          interval: float = 1.0):
-    typer.echo(f"📜  watching {file} …")
-    last = ""
-    while True:
-        if file.exists():
-            digest = hashlib.sha256(file.read_bytes()).hexdigest()
-            if digest != last:
-                last = digest
-                for line in file.read_text().splitlines():
-                    if line.strip():
-                        issue_cert(line.strip(), [], CA_DIR, CERTS_DIR)
-        time.sleep(interval)
+                                    help="domain list file to watch")):
+    """Watch *file* and issue certs for new domains."""
+    watch_file(file, CA_DIR, CERTS_DIR)
+
 
 if __name__ == "__main__":
-    app()
+    APP()
