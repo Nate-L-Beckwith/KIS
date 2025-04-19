@@ -33,7 +33,7 @@ logs:
 	$(COMPOSE) logs -f minica
 
 clean:
-	-$(COMPOSE) down --volumes --remove-orphans
+	$(COMPOSE) down --volumes --remove-orphans
 
 nuke: clean
 	@echo "🔴  NUKE: removing all artefacts for project '$(PROJECT)' …"
