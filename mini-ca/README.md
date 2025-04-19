@@ -243,4 +243,3 @@ Override via `docker compose build --build-arg UID=$(id -u)` or editing `docker-
 ###  License
 
 Released under the [MIT License](LICENSE).
-If mini‑ca saves you time, drop a ⭐ — it fuels more tinkering! 🚀
