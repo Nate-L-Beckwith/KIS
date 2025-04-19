@@ -1,0 +1,174 @@
+# mini‑ca 📜🔐
+*A self‑contained, wheels‑only, Python‑powered tiny CA for local labs & CI.*
+
+---
+
+## 0 . TL;DR – 30 sec quick‑start
+
+```bash
+git clone https://…/mini-ca.git
+cd mini-ca
+
+# build image (no network at runtime)
+make                 # = docker compose -f docker-compose.yml build
+
+# one‑shot bootstrap – creates root CA in the volume
+docker compose --profile setup up --build   # removes itself when done
+
+# start the long‑running certificate watcher
+docker compose up -d                        # container: mini-ca-minica-1
+
+#   OR issue certs imperatively:
+docker compose run --rm cli issue foo.dev --san www.foo.dev api.foo.dev
+```
+
+You’ll get
+
+```text
+minica-data/
+├── rootCA/
+│   ├── rootCA.crt
+│   └── rootCA.key
+└── certificates/
+    └── foo.dev/
+        ├── foo.dev.crt
+        └── foo.dev.key
+```
+
+---
+
+## 1 . Image layout
+
+| Stage / tag | Purpose | Entrypoint |
+|-------------|---------|------------|
+| **`minica:latest`** | Single runtime image containing CLI & watcher. | `entry.sh` (default) |
+| *(same image, different entrypoint)* | one‑shot bootstrap used by profile **setup** | `entry‑init.sh` |
+
+Both layers are built from *docker/Dockerfile*; wheels are baked during the
+*builder* stage, so the runtime layer has **no build tools & no internet need**.
+
+---
+
+## 2 . Docker Compose bundle
+
+```yaml
+services:
+  init:                # profile: setup
+    build: docker/
+    image: minica:latest
+    user: "0"                          # root so it can chown /data
+    entrypoint: ["entry-init.sh"]
+    volumes: [minica-data:/data]
+    restart: "no"
+    profiles: ["setup"]
+
+  minica:              # long‑running daemon
+    build: .
+    image: minica:latest
+    volumes: [minica-data:/data]
+    restart: unless-stopped
+
+  cli:                 # throw‑away “swiss‑army‑knife”
+    image: minica:latest
+    entrypoint: ["mini_ca.py"]
+    profiles: ["cli"]
+    volumes: [minica-data:/data]
+
+volumes:
+  minica-data:         # owns everything under /data
+```
+
+### Profiles
+
+| profile | What it does |
+|---------|--------------|
+| **setup** | `init` only – run once to create the root CA & fix permissions |
+| *(default)* | `minica` – starts the batch watcher |
+| **cli** | spawns the on‑demand CLI container |
+
+---
+
+## 3 . CLI reference (`mini_ca.py`)
+
+| Command | Options | Description |
+|---------|---------|-------------|
+| **`init`** | `--force` : overwrite existing root CA | Generates `/data/rootCA/{rootCA.key,rootCA.crt}` |
+| **`issue DOMAIN`** | `--san SAN ...` (repeat) | Writes key/cert to `/data/certificates/DOMAIN/` |
+| **`watch`** | `--file /path/to/file` (default `/data/DOMAINS`) | Tails *file*; each new line = domain to issue |
+
+All commands honour two env‑vars that you can override:
+
+```text
+MYCA_ROOT=/data/rootCA          # location of root key/cert
+MYCA_CERTS=/data/certificates   # where issued leaf certs go
+```
+
+---
+
+## 4 . Watcher semantics
+
+* Reads (or creates) the `DOMAINS` file inside the volume.
+* Every non‑blank, non‑comment line is treated as a domain.
+* New domains → calls the same `issue` routine internally.
+* Certificates are re‑issued if **not present**; no expiry rotation yet.
+
+---
+
+## 5 . Make targets
+
+| target | command |
+|--------|---------|
+| `make` or `make build` | `docker compose -f docker-compose.yml build` |
+| `make up` | `docker compose up -d` |
+| `make logs` | `docker compose logs -f` |
+| `make clean` | `docker compose down -v --remove-orphans` |
+
+---
+
+## 6 . How to embed mini‑ca in another stack
+
+```yaml
+# kitchen‑owl/docker-compose.yml
+services:
+  ca:
+    image: minica:latest          # or `build: ./mini-ca`
+    volumes:
+      - owl-ca-data:/data
+    restart: unless-stopped
+
+volumes:
+  owl-ca-data:
+```
+
+Optionally vend the root certificate to your other containers:
+
+```yaml
+kitchen-owl:
+  ...
+  volumes:
+    - owl-ca-data:/ca   # read‑only in app container
+  environment:
+    REQUESTS_CA_BUNDLE: /ca/rootCA/rootCA.crt
+```
+
+---
+
+## 7 . Security & production warnings
+
+* **Never place the volume on a host you do not trust.**
+  The root key is unencrypted (just like mkcert / step‑ca default dev mode).
+* Suitable for **development, testing, homelab**.
+  For real production use you’d want hardware‑backed storage or at least a
+  pass‑phrase, plus CRL/OCSP, revocation, audit, etc.
+
+---
+
+## 8 . Troubleshooting checklist
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `PermissionError: '/data/DOMAINS'` | Volume first created by root, not chowned | run the `init` profile again (or `docker exec` and `chown -R 1001:1001 /data`) |
+| `FileNotFoundError '/data/rootCA/rootCA.key'` | Root CA missing | `docker compose run --rm cli init --force` |
+| Compose says “services must be a mapping” | Invoked from wrong folder | `cd mini-ca` (the directory holding `docker-compose.yml`) |
+
+---
