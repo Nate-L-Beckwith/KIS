@@ -6,29 +6,39 @@ from init_ca import init_ca
 from issue_cert import issue_cert
 from watch import watch_file
 
-APP = typer.Typer(add_completion=False)
+APP        = typer.Typer(add_completion=False)
 CA_DIR     = Path("/data/rootCA")
 CERTS_DIR  = Path("/data/certificates")
 
 
 @APP.command()
-def init(force: bool = typer.Option(
-         False, help="Overwrite existing CA if it exists")):
-    """Initialise or recreate the root CA."""
+def init(force: bool = typer.Option(False, help="overwrite existing CA if present")):
+    """Create (or rotate) the root CA."""
     init_ca(CA_DIR, force)
 
 
 @APP.command()
-def issue(domain: str,
-          san: list[str] = typer.Option(None, "--san", help="extra SANs")):
+def issue(
+    domain: str,
+    san: list[str] = typer.Option(None, "--san", help="additional SANs"),
+    full_path: bool = typer.Option(
+        False,
+        "--full-path",
+        help="store certs under full FQDN folder instead of first label",
+    ),
+):
     """Issue a certificate for *DOMAIN*."""
-    issue_cert(domain, san or [], CA_DIR, CERTS_DIR)
+    default_sans = san or [domain]          # CN always duplicated into SAN list
+    issue_cert(domain, default_sans, CA_DIR, CERTS_DIR, full_path)
 
 
 @APP.command()
-def watch(file: Path = typer.Option("/data/DOMAINS", "--file",
-                                    help="domain list file to watch")):
-    """Watch *file* and issue certs for new domains."""
+def watch(
+    file: Path = typer.Option(
+        "/data/DOMAINS", "--file", help="domain list file to watch"
+    )
+):
+    """Continuously watch *FILE* and issue for every new line."""
     watch_file(file, CA_DIR, CERTS_DIR)
 
 

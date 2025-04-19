@@ -54,9 +54,11 @@ make init                # => docker compose --profile setup run …
 make up                  # => docker compose up -d
 
 # 3️⃣  mint a certificate whenever you need one
-docker compose run --rm cli \
-        issue blog.acme.test --san www.blog.acme.test
+docker compose run --rm cli issue blog.acme.test --san www.blog.acme.test
 ```
+--san flag is optional
+If omitted, the tool automatically sets SAN =DOMAIN.
+Use --san (or --san=…) only when you need additional names.
 
 Result inside the volume:
 
