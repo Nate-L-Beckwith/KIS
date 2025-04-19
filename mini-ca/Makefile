@@ -1,51 +1,47 @@
-# ──────────────── settings ─────────────────
-COMPOSE      = docker compose -f docker-compose.yml
-PROJECT_NAME = mini-ca
-IMAGE_NAME   = minica
-VOLUME_NAME  = minica-data
+###############################################################################
+# mini‑ca – Makefile
+###############################################################################
+PROJECT        ?= mini-ca
+IMAGE_NAME     ?= minica
+VOLUME_NAME    ?= minica-data
+SETUP_PROFILE  = --profile setup
 
-# ──────────────── targets ──────────────────
-.PHONY: build up setup clean nuke
+COMPOSE        = docker compose -f docker-compose.yml --project-name $(PROJECT)
 
-## Build (or rebuild) every service image
+COMPOSE_RUN    = $(COMPOSE) $(SETUP_PROFILE) run --rm
+COMPOSE_UPD    = $(COMPOSE) up -d
+
+.PHONY: help build init setup up logs clean nuke default
+
+help:
+	@grep -E '^[a-zA-Z_-]+:' $(MAKEFILE_LIST) | \
+	  awk 'BEGIN {FS=":"} {printf "\033[36m%-10s\033[0m\n", $$1}'
+
 build:
 	$(COMPOSE) build
 
-## Start the long‑running watcher in the background
+## One‑shot root‑CA bootstrap (idempotent)
+init: build
+	$(COMPOSE_RUN) init
+
+setup: init up
+
 up: build
-	$(COMPOSE) up -d
+	$(COMPOSE_UPD)
 
-## One‑shot setup: build everything & run the init container only
-setup:
-	docker compose --profile setup up --build -d
+logs:
+	$(COMPOSE) logs -f minica
 
-## Stop containers, remove network + volume, but keep the images
 clean:
-	$(COMPOSE) down --volumes --remove-orphans
-	-@docker volume rm -f $(VOLUME_NAME) 2>/dev/null || true
-
-## *** DANGER *** – wipe absolutely everything related to this project
-##   • containers / networks / named volume
-##   • the minica image (all tags)
-##   • dangling layers & build cache for the image
-nuke:
-	@echo "🔴 NUKE: removing *all* $(IMAGE_NAME) containers, images, volume and cache …"
-
-	# 1. Stop/remove the compose stack (if it exists)
 	-$(COMPOSE) down --volumes --remove-orphans
 
-	# 2. Force‑remove stray containers that still use the image
-	-@docker rm -f $$(docker ps -a -q --filter "ancestor=$(IMAGE_NAME)") 2>/dev/null || true
-
-	# 3. Remove the named volume (if it’s still hanging around)
+nuke: clean
+	@echo "🔴  NUKE: removing all artefacts for project '$(PROJECT)' …"
+	-@docker rm -f \
+	   $$(docker ps -a -q --filter "ancestor=$(IMAGE_NAME)") 2>/dev/null || true
 	-@docker volume rm -f $(VOLUME_NAME) 2>/dev/null || true
-
-	# 4. Remove *all* local tags of the image
 	-@docker rmi -f $$(docker images -q $(IMAGE_NAME)) 2>/dev/null || true
-
-	# 5. Clear the build cache (optional but tidy)
 	-@docker builder prune -f 2>/dev/null || true
+	@echo "✅  project '$(PROJECT)' wiped clean"
 
-	@echo "✅  $(PROJECT_NAME) completely nuked"
-# default target (shown by plain `make`)
-default: build
+default: help

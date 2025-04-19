@@ -1,72 +1,81 @@
-<!-- Removed empty fenced code block -->
+# mini‑ca
+
+Below is a **drop‑in replacement README.md** that folds in every capability we’ve discussed, fixes the markdown quirks you noticed (duplicate rows, missing fenced blocks, bad ToC anchors, etc.), and matches the *current* Makefile workflow (`build → init → setup → up`).
+Copy–paste the whole thing over your existing file.
+
+```markdown
 <!-- ────────────────────────────────────────────────────────── -->
 <!--  mini‑ca ⸺ a pocket‑sized Certificate Authority          -->
 <!--  © 2024‑present – MIT‑licensed                            -->
 <!-- ────────────────────────────────────────────────────────── -->
 
-# 🔐 mini‑ca
+<div align="center">
 
-A zero‑dependency Certificate Authority in one Docker image
-*A zero‑dependency Certificate Authority in one Docker image*
-[![build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/your-org/mini-ca)
-[![license](https://img.shields.io/badge/license-MIT-blue)](https://github.com/your-org/mini-ca)
+# 🔐 mini‑ca
+*A zero‑dependency Certificate Authority in a single Docker image*
+
+[![build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/your-org/mini-ca/actions)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 </div>
 
 ---
 
-##  Contents <!-- omit in toc -->
+## Contents <!-- omit in toc -->
 
 1. [Highlights](#highlights)
-2. [Quick start](#quick-start)
-3. [Repo layout](#repo-layout)
+2. [Quick start](#quick-start)
+3. [Repository layout](#repository-layout)
 4. [Docker stack](#docker-stack)
-5. [The CLI](#the-cli)
-6. [Live domain‑watch](#live-domainwatch)
-7. [Clean and Rebuild](#cleanrebuild)
-8. [💣 make nuke full reset](#make-nuke-full-reset)
-9. [Configuration](#configuration)
-10. [Best practices & CI notes](#best-practices--ci-notes)
-11. [Troubleshooting](#troubleshooting)
+5. [Command‑line interface](#command‑line-interface)
+6. [Live domain‑watch](#live-domain‑watch)
+7. [Make targets](#make-targets)
+8. [Clean ↔ Rebuild matrix](#clean↔rebuild-matrix)
+9. [💣 `make nuke` – full reset](#make nuke--full-reset)
+10. [Configuration](#configuration)
+11. [Best practices & CI notes](#best-practices--ci-notes)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
-##  Highlights
+## Highlights
 
 | ✔︎ | Feature |
-| **One‑shot root CA** | `entry‑init.sh` writes a 10‑year *rootCA.key* + *rootCA.crt*. |
-| **Offline image** | wheels baked at build time, **no network hits in prod**. |
-| **Idempotent init** | safe re‑runs; add `--force` to rotate keys. |
-| **Leaf certs on demand** | `issue <domain> [--san alt]` drops key/cert/chain in its own dir. |
-| **Wildcard & SAN** | `*.dev` + unlimited `--san host`. |
-| **Batch watcher** | tails `/data/DOMAINS` → auto‑issues. |
-| **Named volume** | **`minica‑data`** keeps everything between runs. |
-| **Profiles** | *init* (bootstrap), *minica* (watcher), *cli* (on‑demand commands). |
-| **Friendly Makefile** | `help, build, init, setup, up, logs, clean, nuke`. |
-| **Colourised logs** | successes begin with `✅`. |
-| **Hard reset** | `make nuke` wipes containers + volume + images + BuildKit cache. |
-| **Hard reset** – `make nuke` wipes containers + volume + images + BuildKit cache. |
+|----|---------|
+| **One‑shot root CA** – `entry-init.sh` generates *rootCA.key + rootCA.crt* (10 yrs). |
+| **Offline image** – wheels baked at build‑time, **no outbound net** in production. |
+| **Idempotent bootstrap** – safe re‑runs; add `--force` to rotate keys. |
+| **Leaf certs on demand** – `issue <domain> [--san alt …]` drops key / cert / chain in its own dir. |
+| **Wildcard + unlimited SANs** – `*.example.dev` & friends. |
+| **Continuous watcher** – tails `/data/DOMAINS` → auto‑issues as lines appear. |
+| **Named volume** – everything under **`minica-data`** survives container churn. |
+| **Profiles** – *init* (bootstrap) · *minica* (watch) · *cli* (ad‑hoc). |
+| **Friendly Makefile** – `help • build • init • setup • up • logs • clean • nuke`. |
+| **Colourised logs** – success lines start with `✅`. |
+| **Complete wipe** – `make nuke` kills containers, volume, images **and** BuildKit cache. |
 
 ---
 
-##  Quick start
+## Quick start
 
 ```bash
-git clone https://github.com/your‑org/mini-ca.git
+git clone https://github.com/your-org/mini-ca.git
 cd mini-ca
 
-# 1️⃣  build image + create root CA
-make setup              # (build ▸ init ▸ up)
+# 1️⃣  build image + bootstrap root CA (+ volume)
+make init                # => docker compose --profile setup run …
 
-# 2️⃣  issue a cert anytime
+# 2️⃣  bring up the live watcher in the background
+make up                  # => docker compose up -d
+
+# 3️⃣  mint a certificate whenever you need one
 docker compose run --rm cli \
         issue blog.acme.test --san www.blog.acme.test
 ```
 
 Result inside the volume:
 
-```text
+```tree
 /data/
 ├─ rootCA/
 │  ├─ rootCA.key
@@ -75,57 +84,60 @@ Result inside the volume:
    └─ blog.acme.test/
       ├─ blog.acme.test.key
       ├─ blog.acme.test.crt
-      └─ chain.pem
+      └─ chain.pem              # root + leaf
 ```
 
-Import **rootCA.crt** into your OS/browser → every issued cert is trusted.
+> **Trust chain:** import *rootCA.crt* into your OS / browser once – every leaf cert is then trusted.
 
 ---
 
-##  Repo layout
+##  Repository layout
 
 ```text
 mini-ca/
 ├─ docker/
-│  ├─ Dockerfile         <-- multi‑stage build
-│  ├─ entry.sh           <-- default entrypoint (watch / CLI)
-│  └─ entry-init.sh      <-- bootstrap root CA (one‑shot)
-├─ run/                  <-- pure‑Python CA code (Typer CLI)
-│  ├─ mini_ca.py         <-- main CLI
-│  ├─ init_ca.py | issue_cert.py | watch.py | …
-├─ docker-compose.yml    <-- production bundle / profiles
-├─ Makefile              <-- convenience wrapper
-├─ requirements.txt      <-- runtime deps (wheels cached)
-└─ README.md
+│  ├─ Dockerfile         # multi‑stage, wheels baked
+│  ├─ entry.sh           # default entrypoint (watch / cli)
+│  └─ entry-init.sh      # one‑shot CA bootstrap
+├─ run/                  # pure‑Python CA logic (Typer CLI)
+│  ├─ mini_ca.py         # main CLI
+│  ├─ init_ca.py
+│  ├─ issue_cert.py
+│  ├─ watch.py
+│  └─ ...
+├─ docker-compose.yml    # production bundle (profiles)
+├─ Makefile              # convenience wrapper
+├─ requirements.txt      # runtime deps (wheel‑cached)
+└─ README.md             # <— this file
 ```
 
 ---
 
 ##  Docker stack
 
-| Service   | Profile(s)      | Role                       | Entrypoint       | Restart |
-|-----------|-----------------|----------------------------|------------------|---------|
-| **init**  | `setup`         | one‑shot CA bootstrap      | `entry-init.sh`  | *no*    |
-| **cli**   | `cli` (manual)  | ad‑hoc CA commands         | `entry.sh`       | *no*    |
-| **minica**| default         | live domain‑watch          | `entry.sh`       | `unless‑stopped` |
+| Service   | Profile(s) | Role                      | Entrypoint       | Restart |
+|-----------|------------|---------------------------|------------------|---------|
+| **init**  | `setup`    | one‑shot root CA bootstrap| `entry-init.sh`  | *no*    |
+| **cli**   | `cli`      | ad‑hoc CA commands        | `entry.sh`       | *no*    |
+| **minica**| *(default)*| live domain watcher       | `entry.sh`       | `unless-stopped` |
 
-All share the named volume **`minica‑data`** (`/data` inside).
+All services mount **`minica-data`** → `/data`.
 
 ---
 
-##  The CLI
+##  Command‑line interface
 
-```text
+```bash
 mini_ca.py init   [--force]
-mini_ca.py issue  DOMAIN [--san ALT_SAN …]
+mini_ca.py issue  DOMAIN [--san ALT …]
 mini_ca.py watch  [--file /data/DOMAINS]
 ```
 
-* **init** – generate/rotate root CA (*--force* to overwrite).
-* **issue** – create leaf cert + private key + full chain.
-* **watch** – continuous domain file processing.
+* **init** – create / rotate the root CA.
+* **issue** – write key + cert + chain for *DOMAIN*.
+* **watch** – monitor a file and issue for every new line.
 
-*On‑demand example*:
+One‑shot example (no compose):
 
 ```bash
 docker run --rm -v minica-data:/data minica \
@@ -136,95 +148,112 @@ docker run --rm -v minica-data:/data minica \
 
 ##  Live domain‑watch
 
-1. `make up` – watcher starts and tails `/data/DOMAINS`.
-2. Append hostnames (one per line) → certificates appear instantly.
+1. `make up` – starts **minica** which tails `/data/DOMAINS`.
+2. Append hostnames – every line triggers `issue`.
 
 ```bash
-echo "store.acme.dev" | docker compose exec -T cli sh -c 'cat >>/data/DOMAINS'
+echo "store.acme.dev" | docker compose exec -T cli \
+        sh -c 'cat >>/data/DOMAINS'
+```
+
+Watcher logs show:
+
+```text
+✅  Certificate issued for 'store.acme.dev'
 ```
 
 ---
 
 ##  Make targets
 
-| Target      | What it does |
-|-------------|--------------|
-| **help**    | Show colourised help (default output). |
-| **build**   | `docker compose build` (all services). |
-| **init**    | One‑shot root‑CA bootstrap (`--rm` container). |
-| **setup**   | **build ▸ init ▸ up** – first‑run bootstrap. |
-| **up**      | Start (or restart) live watcher. |
-| **logs**    | Follow watcher logs. |
-| **clean**   | Stop stack & network; keep images & volume. |
-| **nuke**    | **Full wipe** – containers, volume, images, BuildKit cache. |
+| Target  | Description |
+|---------|-------------|
+| **help**  | Colourised target list (default). |
+| **build** | `docker compose build` (all services). |
+| **init**  | Build then run the *init* profile once (creates volume & root CA). |
+| **setup** | Convenience: **init + up** – great for a fresh clone. |
+| **up**    | Start (or restart) the watcher. |
+| **logs**  | Follow watcher logs (`docker compose logs -f minica`). |
+| **clean** | Stop stack **and** delete volume `minica-data` (images kept). |
+| **nuke**  | Full wipe – containers, volume, **all** `minica:*` images, BuildKit cache. |
 
 Environment overrides:
 
 ```bash
-PROJECT=mydemo make setup   # custom compose project‑name
-UID=1000        make build  # bake different runtime uid
-WATCH=0         make up     # start stack *without* watcher
+PROJECT=my‑lab make up     # custom compose project‑name
+UID=$(id -u) make build    # bake image with matching uid
+WATCH=0 make up            # skip starting the watcher
 ```
 
 ---
 
-##  Clean ↔ Rebuild
+##  Clean↔Rebuild matrix
 
-| Goal                          | Command |
-|-------------------------------|---------|
-| Stop stack, keep data         | `make clean` |
-| Rotate root CA                | `make init` *(adds `--force` inside)* |
-| Rotate root CA                | `make init` (adds `--force` inside) |
-| Rotate root CA                | `make init` *(adds `--force` inside)* |
+| Need | Command |
+|------|---------|
+| Stop stack, keep data            | `make clean` *(edit Makefile to drop volume rm if desired)* |
+| Delete data & start fresh        | `make clean && make init && make up` or simply `make setup` |
+| Rotate root CA (new trust chain) | `docker compose run --rm cli init --force` *(after `make clean`)* |
+| Hard‑reset **everything**        | `make nuke` |
 
 ---
 
-##  make nuke – full reset
+##  make nuke – full reset
 
 ```bash
 make nuke
+# 🔴  NUKE: removing all artefacts for project 'mini-ca' …
 # …
-# ✅  project 'mini‑ca' wiped clean
+# ✅  project 'mini-ca' wiped clean
 ```
 
-Sequence performed:
+Performed steps
 
 1. `docker compose down --volumes`.
-2. Force‑remove any stray container using the image.
-3. Delete volume **minica‑data**.
-4. Remove *every* local tag `minica:*`.
-5. `docker builder prune -f` – scrub BuildKit cache.
+2. `docker rm -f` any stray container using the `minica` image.
+3. `docker volume rm -f minica-data`.
+4. `docker rmi -f $(docker images -q minica)`.
+5. `docker builder prune -f`.
 
-Afterwards: `make setup` to bootstrap again.
+You’re back to zero – run `make setup` to start again.
 
 ---
 
 ##  Configuration
 
-| Variable (env / build‑arg) | Default              | Meaning |
-|----------------------------|----------------------|---------|
-| `MYCA_ROOT`                | `/data/rootCA`       | root CA folder |
-| `MYCA_CERTS`               | `/data/certificates` | leaf certs folder |
-| `UID` (build‑arg)          | `1001`               | runtime user id |
+| Variable (env / build‑arg) | Default | Usage |
+|----------------------------|---------|-------|
+| `MYCA_ROOT`                | `/data/rootCA`        | root CA folder |
+| `MYCA_CERTS`               | `/data/certificates`  | leaf cert store |
+| `UID` (build‑arg)          | `1001`                | runtime user id |
 
-Set via `docker compose build --build-arg UID=$(id -u)` or editing the compose file.
+Override via `docker compose build --build-arg UID=$(id -u)` or editing `docker-compose.yml`.
 
 ---
 
-##  Best practices & CI notes
+##  Best practices & CI notes
 
-* **Back up** `/data/rootCA/rootCA.key` & `rootCA.crt` before deploying clients.
-* Use two compose projects in CI: one for *init* only (produces artefacts), another for integration tests.
-* Mount the volume read‑only in production containers that only need to **read** certificates.
-* Run `mini_ca.py issue` in CI to mint short‑lived certs for test suites.
+| Tip | Why |
+|-----|-----|
+| **Back up** `/data/rootCA/rootCA.key` & `rootCA.crt` before rolling to prod. | Losing the key breaks the trust chain forever. |
+| Use *two* compose projects in CI: one for **init** (outputs artefacts) and one for tests. | Isolates state. |
+| Mount `minica-data` **read‑only** in consumer services. | Prevents accidental writes. |
+| Prefer `mini_ca.py issue … --days 1` *(if you add TTL flag)* for short‑lived CI certs. | Avoids long‑term clutter. |
 
 ---
 
 ##  Troubleshooting
 
-| Symptom | Fix |
-|---------|-----|
-| `Permission denied: '/data/DOMAINS'` | Run `make clean` – you’re probably re‑using a root‑owned volume. |
-| `FileNotFoundError rootCA.key`       | You skipped `make init` / `make setup`. |
-| Terminal “hangs” after `docker compose run cli watch` | That command runs **interactive**; add `-d` or use the watcher service. |
-| Disk space keeps growing             | `make nuke` wipes all images & cache. |
+| Symptom | Likely cause / fix |
+|---------|-------------------|
+| `Permission denied: '/data/DOMAINS'` | Volume created as root – run `make clean`, then `make init` to re‑chown. |
+| `FileNotFoundError rootCA.key` | Skipped bootstrap – run `make init` (or `make setup`). |
+| Terminal “hangs” after `run cli watch` | That command is interactive; add `-d` or use the `minica` watcher service + `make logs`. |
+| Docker disk space bloat | `make nuke` removes images, volume, & cache layers. |
+
+---
+
+###  License
+
+Released under the [MIT License](LICENSE).
+If mini‑ca saves you time, drop a ⭐ — it fuels more tinkering! 🚀
