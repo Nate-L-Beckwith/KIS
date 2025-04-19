@@ -1,4 +1,5 @@
 # 🔐 mini‑ca
+
 *A zero‑dependency Certificate Authority in a single Docker image*
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -6,42 +7,42 @@
 
 ---
 
-## Contents <!-- omit in toc -->
+##  Contents <!-- omit in toc -->
 
 1. [Highlights](#highlights)
 2. [Quick start](#quick-start)
 3. [Repository layout](#repository-layout)
 4. [Docker stack](#docker-stack)
-5. [Command‑line interface](#command‑line-interface)
-6. [Live domain‑watch](#live-domain‑watch)
+5. [Command‑line interface](#command-line-interface)
+6. [Live domain‑watch](#live-domain-watch)
 7. [Make targets](#make-targets)
-8. [Clean ↔ Rebuild matrix](#clean↔rebuild-matrix)
-9. [💣 `make nuke` – full reset](#make nuke--full-reset)
+8. [Clean ↔ Rebuild matrix](#clean-rebuild-matrix)
+9. [💣 `make nuke` – full reset](#make-nuke-full-reset)
 10. [Configuration](#configuration)
-11. [Best practices & CI notes](#best-practices--ci-notes)
+11. [Best practices & CI notes](#best-practices-ci-notes)
 12. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Highlights
+##  Highlights
 
 | ✔︎ | Feature |
 |----|---------|
-| **One‑shot root CA** – `entry-init.sh` generates *rootCA.key + rootCA.crt* (10 yrs). |
-| **Offline image** – wheels baked at build‑time, **no outbound net** in production. |
-| **Idempotent bootstrap** – safe re‑runs; add `--force` to rotate keys. |
-| **Leaf certs on demand** – `issue <domain> [--san alt …]` drops key / cert / chain in its own dir. |
-| **Wildcard + unlimited SANs** – `*.example.dev` & friends. |
-| **Continuous watcher** – tails `/data/DOMAINS` → auto‑issues as lines appear. |
-| **Named volume** – everything under **`minica-data`** survives container churn. |
-| **Profiles** – *init* (bootstrap) · *minica* (watch) · *cli* (ad‑hoc). |
-| **Friendly Makefile** – `help • build • init • setup • up • logs • clean • nuke`. |
-| **Colourised logs** – success lines start with `✅`. |
-| **Complete wipe** – `make nuke` kills containers, volume, images **and** BuildKit cache. |
+| **One‑shot root CA** | `entry-init.sh` generates *rootCA.key + rootCA.crt* (10 yrs). |
+| **Offline image** | wheels baked at build‑time, **no outbound net** in production. |
+| **Idempotent bootstrap** | safe re‑runs; add `--force` to rotate keys. |
+| **Leaf certs on demand** | `issue <domain> [--san alt …]` drops key / cert / chain in its own dir. |
+| **Wildcard + unlimited SANs** | `*.example.dev` & friends. |
+| **Continuous watcher** | tails `/data/DOMAINS` → auto‑issues as lines appear. |
+| **Named volume** | everything under **`minica-data`** survives container churn. |
+| **Profiles** | *init* (bootstrap) · *minica* (watch) · *cli* (ad‑hoc). |
+| **Friendly Makefile** | `help • build • init • setup • up • logs • clean • nuke`. |
+| **Colourised logs** | success lines start with `✅`. |
+| **Complete wipe** | `make nuke` kills containers, volume, images **and** BuildKit cache. |
 
 ---
 
-## Quick start
+##  Quick start {#quick-start}
 
 ```bash
 git clone https://github.com/your-org/mini-ca.git
@@ -56,6 +57,7 @@ make up                  # => docker compose up -d
 # 3️⃣  mint a certificate whenever you need one
 docker compose run --rm cli issue blog.acme.test --san www.blog.acme.test
 ```
+
 --san flag is optional
 If omitted, the tool automatically sets SAN =DOMAIN.
 Use --san (or --san=…) only when you need additional names.
@@ -112,7 +114,7 @@ All services mount **`minica-data`** → `/data`.
 
 ---
 
-##  Command‑line interface
+##  Command‑line interface {#command-line-interface}
 
 ```bash
 mini_ca.py init   [--force]
@@ -133,7 +135,7 @@ docker run --rm -v minica-data:/data minica \
 
 ---
 
-##  Live domain‑watch
+##  Live domain‑watch {#live-domain-watch}
 
 1. `make up` – starts **minica** which tails `/data/DOMAINS`.
 2. Append hostnames – every line triggers `issue`.
@@ -174,7 +176,7 @@ WATCH=0 make up            # skip starting the watcher
 
 ---
 
-##  Clean↔Rebuild matrix
+##  Clean↔Rebuild matrix {#clean-rebuild-matrix}
 
 | Need | Command |
 |------|---------|
@@ -185,7 +187,7 @@ WATCH=0 make up            # skip starting the watcher
 
 ---
 
-##  make nuke – full reset
+##  make nuke – full reset {#make-nuke-full-reset}
 
 ```bash
 make nuke
@@ -218,7 +220,7 @@ Override via `docker compose build --build-arg UID=$(id -u)` or editing `docker-
 
 ---
 
-##  Best practices & CI notes
+##  Best practices & CI notes {#best-practices-ci-notes}
 
 | Tip | Why |
 |-----|-----|
