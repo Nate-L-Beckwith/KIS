@@ -1,0 +1,46 @@
+# mini-ca/docker-compose.yml
+#
+# ── production bundle ──────────────────────────────────────────
+services:
+
+  # -------------------------------------------------------------
+  # one‑shot initialiser – create /data/rootCA and fix ownership
+  # run with:  docker compose --profile setup up --build
+  # -------------------------------------------------------------
+  init:
+    image: minica:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    user: "0"                        # root so chown works
+    volumes:
+      - minica-data:/data
+    entrypoint: ["entry-init.sh"]
+    restart: "no"
+    profiles: ["setup"]              # excluded from plain “up -d”
+
+  # -------------------------------------------------------------
+  # long‑running watcher – reads /data/DOMAINS, issues certs
+  # starts with:  docker compose up -d
+  # -------------------------------------------------------------
+  minica:
+    image: minica:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - minica-data:/data
+    restart: unless-stopped
+
+  # -------------------------------------------------------------
+  # ad‑hoc CLI – convenient wrapper for one‑off commands
+  # example:  docker compose run --rm cli issue example.dev --san www.example.dev
+  # -------------------------------------------------------------
+  cli:
+    extends: minica
+    entrypoint: ["mini_ca.py"]
+    profiles: ["cli"]
+
+volumes:
+  minica-data:
+    name: minica-data
