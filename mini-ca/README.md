@@ -1,7 +1,5 @@
 # 🔐 mini‑ca
 *A zero‑dependency Certificate Authority in a single Docker image*
-
-[![build](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/your-org/mini-ca/actions)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 </div>
