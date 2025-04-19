@@ -1,8 +1,5 @@
 # mini‑ca
 
-Below is a **drop‑in replacement README.md** that folds in every capability we’ve discussed, fixes the markdown quirks you noticed (duplicate rows, missing fenced blocks, bad ToC anchors, etc.), and matches the *current* Makefile workflow (`build → init → setup → up`).
-Copy–paste the whole thing over your existing file.
-
 ```markdown
 <!-- ────────────────────────────────────────────────────────── -->
 <!--  mini‑ca ⸺ a pocket‑sized Certificate Authority          -->
